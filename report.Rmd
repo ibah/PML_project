@@ -1,0 +1,87 @@
+---
+title: "Weight Lifting Exercise - Quality Recognition"
+author: "Michal Siwek"
+date: "Thursday, November 20, 2015"
+output: html_document
+---
+
+## Summary
+
+The aim of the report is to **model a particular barbell exercise** using accelerometer data so that the quality of the performance can be regonized. The model is bulit using **classification tree** method and its estimated out-of-sample **accuracy is 86%**.
+
+Additionally the model is applied to predict the quality indicators for 20 observations in a supplied test set.
+
+## Data
+
+### Data collection
+
+The data set contains readings from accelerometers located on the belt, forearm, arm, and dumbell of 6 participants performing the Unilateral Dumbbell Biceps Curl. Each of them performed a set of 10 repetition, in five different manners, called A-E, where A is the correct one, and B-E represents four different mistakes commonly made in the exercise. The data contains also participant name, date and time of the measurement, and time window indicators.
+```{r, cache=TRUE}
+train_file <- "./data/train.csv"
+test_file <- "./data/test.csv"
+training <- read.csv(train_file)
+testing <- read.csv(test_file)
+```
+
+### The test set properties and preprocessing
+
+The model is supposed to make predictions given a test set that contains only a subset of the training set variables.
+```{r, cache=TRUE}
+variables <- sapply(testing, function(x) sum(is.na(x)) == 0)  # selecting provided predictors
+variables[1] <- F  # dropping column containing row numbers
+```
+Hence **all variables missing in the test set are dropped in the training set**. The time stamp variable is converted from factor to a proper date-time variable:
+```{r, cache=TRUE}
+frmt <- "%d/%m/%Y %H:%M"
+training$cvtd_timestamp <- as.POSIXct(strptime(as.character(training$cvtd_timestamp), frmt, "GMT"))
+testing$cvtd_timestamp <- as.POSIXct(strptime(as.character(testing$cvtd_timestamp), frmt, "GMT"))
+```
+The training set is split into two subsets: one for actual model training and one for out-of-sample error estimation.
+```{r, cache=TRUE, warning=FALSE}
+library(caret)
+set.seed(123)
+inTrain <- createDataPartition(training$classe, p = 0.7, list = F)
+training1 <- training[inTrain, variables]
+testing1 <- training[-inTrain, variables]
+```
+As the test set contains observations in isolated time points **the data are treated as cross-section**, not time series data. I do not convert the time variables to proper date-time formats.
+
+## Model
+
+### Strategy
+
+The model is aimed at **predicting the class of the activity given only the instantaneous measurments**. No data from any other time point (especially immediately preceding of following the prediction point) are taken into account. **All avaialble variables are used to train the model**, including special variables like participant names, time indicators etc. Using these special variables is acceptable given the content of the supplied test set.
+
+As a result *this is more a task of estimating missing values for the "classe" column in the data gathered during the experiment, than an attempt to build a prediction model applicable to other experiments or real world situations*.
+
+### Training algorithm
+
+As the outcome variable is categorical I apply a **classification tree** algorithm, as provided by `rpart` package for R.
+```{r, cache=TRUE}
+library(rpart)
+set.seed(123)
+fit <- rpart(classe ~ ., data = training1, method = "class")
+```
+
+### Cross-validation
+
+The cross-validation is performed by the `rpart` function. It's a default **10-fold cross-validation**. Splits are performed as long as each of them increases the overall lack of fit by 0.01. Finally the simplest tree is selected that is within one standard error (as estimated through the cross-validation) of the best tree. This is the default behavious of the `rpart` function.
+```{r, cache=TRUE}
+plotcp(fit)
+```
+
+### Model ouput
+
+The model produced following classification tree:
+```{r, cache=TRUE, warning=FALSE, fig.width=12, fig.height=10, fig.align='center'}
+plot(fit, uniform=TRUE, main="Classification Tree")
+text(fit, srt = 10, cex = 0.9, minlength = 0)
+```
+
+### Expected out-of-sample error
+
+The expected out-of-sample error is 86%.
+```{r, cache=TRUE}
+pred1 <- predict(fit, testing1, type = "class")
+confusionMatrix(pred1, testing1$classe)
+```
